@@ -1,10 +1,11 @@
 module Main exposing (..)
 
 import Html exposing (Html, text, div, h1, img)
+import Html.Events as Events
 import Html.Attributes exposing (class)
 import Dict
 import Dict exposing (Dict)
-
+import Maybe.Extra exposing (isNothing)
 
 ---- MODEL ----
 
@@ -12,6 +13,11 @@ type Color
     = Black
     | White
 
+flipColor : Color -> Color
+flipColor color =
+    case color of
+        White -> Black
+        Black -> White
 
 type alias Position
     = (Int, Int)
@@ -50,19 +56,53 @@ type Msg
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    ( model, Cmd.none )
-
+    case msg of
+        NoOp -> ( model, Cmd.none )
+        Click pos ->
+            let
+                model_ =
+                    { board = Dict.update pos (always <| Just <| Just model.turn) model.board
+                    , turn = flipColor model.turn
+                    }
+            in
+                model_ ! []
 
 
 ---- VIEW ----
 
 
 view : Model -> Html Msg
-view { board } =
-    div [class "board"]
-        <| Dict.foldr (\_ cell seq -> dispCell cell :: seq) [] board
+view { board, turn } =
+    let
+        puttables = search turn board
+        boardState =
+            Dict.merge
+                (\k color d -> Dict.insert k (color, Nothing) d)
+                (\k color puts d -> Dict.insert k (color, Just puts) d)
+                (\k puts d -> Dict.insert k (Just turn, Just puts) d)  -- このコードパスはないはず
+                board
+                puttables
+                Dict.empty
+    in
+        div [class "board"]
+            <| Dict.foldr (\pos cell seq -> dispCell pos cell :: seq) [] boardState
 
 
+dispCell : Position -> (Maybe Color, Maybe (List Position)) -> Html Msg
+dispCell pos (stone, flips) =
+    let
+        classes = class "cell" ::
+                  (if isNothing flips then
+                       []
+                   else
+                       [class "puttable", Events.onClick (Click pos)]
+                  )
+        children =
+            case stone of
+                Nothing -> []
+                Just s  -> [ div [class <| String.toLower <| toString s] [] ]
+    in
+        div classes children
 
 ---- PROGRAM ----
 
@@ -82,22 +122,25 @@ product xs ys =
     List.map (\x -> List.map (\y -> (x,y)) ys) xs
         |> List.concat
 
-
-dispCell : Maybe Color -> Html Msg
-dispCell stone =
-    case stone of
-        Nothing  -> div [class "cell"] []
-        (Just s) -> div [class <| "cell"]
-                    [ div [class <| String.toLower <| toString s] []
-                    ]
+{-
+undefined : undefined
+undefined =
+    let
+        _ = Debug.log "Undefined code path is executed." ()
+        undefinedFunc x = undefinedFunc x
+    in
+        undefinedFunc ()
+-}
 
 mapMaybe : (a -> Maybe b) -> List a -> List b
 mapMaybe func seq =
     let
-        undefinedFunc x = undefinedFunc x
-        undefined = undefinedFunc ()
+        fromJust x =
+            case x of
+                Just x -> x
+                Nothing -> Debug.crash "error: fromJust Nothing"
     in
-        List.map (Maybe.withDefault undefined)
+        List.map fromJust
             <| List.filter (\e -> e /= Nothing)
             <| List.map func seq
 

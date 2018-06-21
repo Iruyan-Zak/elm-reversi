@@ -93,7 +93,23 @@ dispCell stone =
 
 mapMaybe : (a -> Maybe b) -> List a -> List b
 mapMaybe func seq =
-    List.filter (\e -> e /= Nothing) <| List.map func seq
+    let
+        undefinedFunc x = undefinedFunc x
+        undefined = undefinedFunc ()
+    in
+        List.map (Maybe.withDefault undefined)
+            <| List.filter (\e -> e /= Nothing)
+            <| List.map func seq
+
+reversiMerge : Dict Position (List Position) -> Dict Position (List Position) -> Dict Position (List Position)
+reversiMerge dict1 dict2 =
+    Dict.merge
+        (\pos cand buf -> Dict.insert pos cand buf)
+        (\pos cand1 cand2 buf -> Dict.insert pos (cand1 ++ cand2) buf)
+        (\pos cand buf -> Dict.insert pos cand buf)
+        dict1
+        dict2
+        Dict.empty
 
 search : Color -> Board -> Dict Position (List Position)
 search color board =
@@ -105,26 +121,32 @@ search color board =
         directions = product [-1, 0, 1] [-1, 0, 1]
 
         candidates = flip List.map directions
-                     <| \pos -> mapMaybe (search' board [] color pos) bases
+                     <| \pos -> mapMaybe (searchSegment board [] color pos) bases
 
+        result = List.foldl reversiMerge Dict.empty <| List.map Dict.fromList candidates
+    in
+        result
 
-search' : Board -> List Position -> Color -> Position -> Position -> Maybe (Position, List Position)
-search' board flippables edgeColor (dx, dy) (baseX, baseY) =
+searchSegment : Board -> List Position -> Color -> Position -> Position -> Maybe (Position, List Position)
+searchSegment board flippables edgeColor (dx, dy) (baseX, baseY) =
     let
         nextPos = (baseX + dx, baseY + dy)
         nextCell = Dict.get nextPos board
 
-        (finish, flippables') =
+        (finish, flippables_) =
             case nextCell of
                 Nothing -> (True, [])  -- board上にないセル、つまり枠外 ==> 置けない
-                Just color -> (True, [])  -- 同じ色の石で塞いである ==> 置けない
                 Just Nothing -> (True, flippables)  -- 空きセル ==> ひっくり返せる石が1個でもあれば置ける
-                _ -> (False, nextPos :: flippables)  -- 反対の色の石がある ==> ひっくり返せる石に加えて次の石を見る
+                Just (Just stone) ->
+                    if stone == edgeColor then
+                        (True, [])  -- 同じ色の石で塞いである ==> 置けない
+                    else
+                        (False, nextPos :: flippables)  -- 反対の色の石がある ==> ひっくり返せる石に加えて次の石を見る
     in
         if finish then
-            if List.isEmpty flippables' then
+            if List.isEmpty flippables_ then
                 Nothing
             else
-                Just (nextPos, flippables')
+                Just (nextPos, flippables_)
         else
-            search' board flippables' edgeColor (dx, dy) nextPos
+            searchSegment board flippables_ edgeColor (dx, dy) nextPos

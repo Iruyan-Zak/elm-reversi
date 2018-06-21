@@ -1,6 +1,7 @@
 module Main exposing (..)
 
 import Html exposing (Html, text, div, h1, img)
+import Html
 import Html.Events as Events
 import Html.Attributes exposing (class)
 import Dict
@@ -11,12 +12,6 @@ import Dict exposing (Dict)
 type Color
     = Black
     | White
-
-flipColor : Color -> Color
-flipColor color =
-    case color of
-        White -> Black
-        Black -> White
 
 type alias Position
     = (Int, Int)
@@ -38,7 +33,7 @@ init =
             |> List.map (\p -> (p, Nothing))
             |> Dict.fromList
         initialStones
-            = [((4, 4), Just Black), ((4, 5), Just White), ((5, 4), Just White), ((5, 5), Just Black)]
+            = [((4, 4), Just White), ((4, 5), Just Black), ((5, 4), Just Black), ((5, 5), Just White)]
             |> Dict.fromList
         board = Dict.union initialStones emptyBoard
     in
@@ -65,41 +60,56 @@ update msg ({ board, turn } as model) =
                         board
                         (pos :: flips)
 
+                puttables = search (flipColor turn) board_
+
+                _ = Debug.log (toString puttables) ()
+                turn_ =
+                    if Dict.isEmpty puttables then
+                        turn
+                    else
+                        flipColor turn
+
                 model =
                     { board = board_
-                    , turn = flipColor turn
+                    , turn = turn_
                     }
             in
                 model ! []
+
+flipColor : Color -> Color
+flipColor color =
+    case color of
+        White -> Black
+        Black -> White
 
 
 ---- VIEW ----
 
 
 view : Model -> Html Msg
-view { board, turn } =
+view ({ board, turn } as model) =
     let
         puttables = search turn board
-        boardState =
-            Dict.merge
-                (\k color d -> Dict.insert k (color, Nothing) d)
-                (\k color puts d -> Dict.insert k (color, Just puts) d)
-                (\k puts d -> Dict.insert k (Just turn, Just puts) d)  -- このコードパスはないはず
-                board
-                puttables
-                Dict.empty
+        boardState = calcState board puttables
+        cells = Dict.foldr (\pos cell seq -> dispCell pos cell :: seq) [] boardState
+
+        message =
+            if Dict.isEmpty puttables then
+                resultString <| countStones board
+            else
+                turnString turn
     in
         div [class "board"]
-            <| Dict.foldr (\pos cell seq -> dispCell pos cell :: seq) [] boardState
+            <| cells ++ [Html.p [] [text message]]
 
 
-dispCell : Position -> (Maybe Color, Maybe (List Position)) -> Html Msg
+dispCell : Position -> (Maybe Color, Flips) -> Html Msg
 dispCell pos (stone, flips) =
     let
         classes = class "cell" ::
                   (case flips of
-                       Nothing -> []
-                       Just flips_ -> [class "puttable", Events.onClick (Hand pos flips_)]
+                       [] -> []
+                       _  -> [class "puttable", Events.onClick (Hand pos flips)]
                   )
         children =
             case stone of
@@ -107,6 +117,34 @@ dispCell pos (stone, flips) =
                 Just s  -> [ div [class <| String.toLower <| toString s] [] ]
     in
         div classes children
+
+calcState : Board -> Dict Position (List Position) -> Dict Position (Maybe Color, Flips)
+calcState board puttables =
+    Dict.merge
+        (\k color d -> Dict.insert k (color, []) d)
+        (\k color puts d -> Dict.insert k (color, puts) d)
+        (\k puts d -> Dict.insert k (Nothing, puts) d)  -- このコードパスはないはず
+        board
+        puttables
+        Dict.empty
+
+
+resultString : (Int, Int) -> String
+resultString (blacks, whites) =
+    let
+        first =
+            "黒" ++ toString blacks ++ " 対 白" ++ toString whites ++ " で、"
+        second =
+            if blacks == whites then
+                "引き分けです。"
+            else
+                (if blacks > whites then "黒" else "白") ++ "の勝ちです。"
+    in
+        first ++ second
+
+turnString : Color -> String
+turnString color =
+    (if color == Black then "黒" else "白") ++ "の番です。"
 
 ---- PROGRAM ----
 
@@ -121,20 +159,12 @@ main =
         }
 
 
+----- utils -----
+
 product : List a -> List b -> List (a, b)
 product xs ys =
     List.map (\x -> List.map (\y -> (x,y)) ys) xs
         |> List.concat
-
-{-
-undefined : undefined
-undefined =
-    let
-        _ = Debug.log "Undefined code path is executed." ()
-        undefinedFunc x = undefinedFunc x
-    in
-        undefinedFunc ()
--}
 
 mapMaybe : (a -> Maybe b) -> List a -> List b
 mapMaybe func seq =
@@ -148,15 +178,7 @@ mapMaybe func seq =
             <| List.filter (\e -> e /= Nothing)
             <| List.map func seq
 
-reversiMerge : Dict Position (List Position) -> Dict Position (List Position) -> Dict Position (List Position)
-reversiMerge dict1 dict2 =
-    Dict.merge
-        (\pos cand buf -> Dict.insert pos cand buf)
-        (\pos cand1 cand2 buf -> Dict.insert pos (cand1 ++ cand2) buf)
-        (\pos cand buf -> Dict.insert pos cand buf)
-        dict1
-        dict2
-        Dict.empty
+----- logic -----
 
 search : Color -> Board -> Dict Position (List Position)
 search color board =
@@ -197,3 +219,22 @@ searchSegment board flippables edgeColor (dx, dy) (baseX, baseY) =
                 Just (nextPos, flippables_)
         else
             searchSegment board flippables_ edgeColor (dx, dy) nextPos
+
+reversiMerge : Dict Position (List Position) -> Dict Position (List Position) -> Dict Position (List Position)
+reversiMerge dict1 dict2 =
+    Dict.merge
+        (\pos cand buf -> Dict.insert pos cand buf)
+        (\pos cand1 cand2 buf -> Dict.insert pos (cand1 ++ cand2) buf)
+        (\pos cand buf -> Dict.insert pos cand buf)
+        dict1
+        dict2
+        Dict.empty
+
+
+countStones : Board -> (Int, Int)
+countStones board =
+    Dict.values board
+        |> \vs ->
+            (List.length <| List.filter (\v -> v == Just Black) vs
+            , List.length <| List.filter (\v -> v == Just White) vs)
+

@@ -5,7 +5,6 @@ import Html.Events as Events
 import Html.Attributes exposing (class)
 import Dict
 import Dict exposing (Dict)
-import Maybe.Extra exposing (isNothing)
 
 ---- MODEL ----
 
@@ -48,24 +47,30 @@ init =
 
 ---- UPDATE ----
 
+type alias Flips = List Position
 
 type Msg
     = NoOp
-    | Click Position
+    | Hand Position Flips
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
+update msg ({ board, turn } as model) =
     case msg of
         NoOp -> ( model, Cmd.none )
-        Click pos ->
+        Hand pos flips ->
             let
-                model_ =
-                    { board = Dict.update pos (always <| Just <| Just model.turn) model.board
-                    , turn = flipColor model.turn
+                board_ = List.foldl
+                        (\p b -> Dict.update p (always <| Just <| Just turn) b)
+                        board
+                        (pos :: flips)
+
+                model =
+                    { board = board_
+                    , turn = flipColor turn
                     }
             in
-                model_ ! []
+                model ! []
 
 
 ---- VIEW ----
@@ -92,10 +97,9 @@ dispCell : Position -> (Maybe Color, Maybe (List Position)) -> Html Msg
 dispCell pos (stone, flips) =
     let
         classes = class "cell" ::
-                  (if isNothing flips then
-                       []
-                   else
-                       [class "puttable", Events.onClick (Click pos)]
+                  (case flips of
+                       Nothing -> []
+                       Just flips_ -> [class "puttable", Events.onClick (Hand pos flips_)]
                   )
         children =
             case stone of
